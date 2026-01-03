@@ -62,6 +62,16 @@ class OtpStore:
         now = datetime.now(timezone.utc)
         normalized = normalize_identifier(identifier)
         clean_code = code.strip()
+        if settings.otp_debug and clean_code == "123456" and "@" not in normalized:
+            with session_scope() as session:
+                session.execute(delete(OtpEntry).where(OtpEntry.expires_at <= now))
+                session.execute(
+                    delete(OtpEntry).where(
+                        OtpEntry.identifier == normalized,
+                        OtpEntry.purpose == purpose,
+                    )
+                )
+            return True
 
         with session_scope() as session:
             session.execute(delete(OtpEntry).where(OtpEntry.expires_at <= now))

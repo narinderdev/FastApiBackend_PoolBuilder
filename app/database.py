@@ -30,11 +30,51 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
     if "users" in inspector.get_table_names():
-        columns = {column["name"] for column in inspector.get_columns("users")}
+        user_columns = inspector.get_columns("users")
+        columns = {column["name"] for column in user_columns}
         if "role" not in columns:
             with engine.begin() as connection:
                 connection.execute(
                     text("ALTER TABLE users ADD COLUMN role VARCHAR(50)")
+                )
+        if "country_code" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN country_code VARCHAR(8)")
+                )
+            columns.add("country_code")
+        if "phone_number" in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET country_code = CONCAT('+', SUBSTRING(phone_number FROM 1 FOR LENGTH(phone_number) - 10)),
+                            phone_number = RIGHT(phone_number, 10)
+                        WHERE country_code IS NULL
+                          AND phone_number IS NOT NULL
+                          AND LENGTH(phone_number) > 10
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        "ALTER TABLE users ALTER COLUMN phone_number TYPE VARCHAR(10) USING RIGHT(phone_number, 10)"
+                    )
+                )
+        if "phone_provided" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN phone_provided BOOLEAN DEFAULT FALSE"
+                    )
+                )
+        if "phone_verified" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT FALSE"
+                    )
                 )
 
 

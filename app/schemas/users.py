@@ -18,7 +18,8 @@ class PermissionFlags(BaseModel):
 class UserCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str | None = Field(default=None, max_length=50)
-    phone_number: str = Field(min_length=10, max_length=32)
+    country_code: str | None = Field(default=None, max_length=8)
+    phone_number: str | None = Field(default=None, max_length=10)
     address: str = Field(min_length=1, max_length=255)
     job_title: str | None = Field(default=None, max_length=100)
     permissions: PermissionFlags
@@ -45,14 +46,34 @@ class UserCreate(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def normalize_phone_number(cls, value: str) -> str:
+    def normalize_phone_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         digits = re.sub(r"\D", "", value)
+        if not digits:
+            return None
         if len(digits) != 10:
             raise ValueError("Phone number must be 10 digits")
+        if digits.startswith("0"):
+            raise ValueError("Phone number cannot start with 0")
         return digits
+
+    @field_validator("country_code")
+    @classmethod
+    def normalize_country_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        digits = re.sub(r"\D", "", value)
+        if not digits:
+            return None
+        if len(digits) < 1 or len(digits) > 4:
+            raise ValueError("Country code must be 1 to 4 digits")
+        return f"+{digits}"
 
     @model_validator(mode="after")
     def validate_permissions(self) -> "UserCreate":
+        if self.phone_number and not self.country_code:
+            raise ValueError("Country code is required when phone number is provided")
         if not any(self.permissions.model_dump().values()):
             raise ValueError("At least one permission must be selected")
         return self
@@ -68,5 +89,7 @@ class UserResponse(BaseModel):
     permissions: PermissionFlags = Field(default_factory=PermissionFlags)
     email: str | None = None
     role: str | None = None
+    country_code: str | None = None
+    phone_verified: bool | None = None
     created_at: datetime
     onboarded_at: datetime | None = None
