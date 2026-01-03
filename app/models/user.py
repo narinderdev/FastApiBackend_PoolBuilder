@@ -14,6 +14,7 @@ class UserEntry(Base):
     address = Column(String(255), nullable=True)
     job_title = Column(String(100), nullable=True)
     permissions = Column(JSON, nullable=True)
+    role = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
     onboarded_at = Column(DateTime(timezone=True), nullable=True)

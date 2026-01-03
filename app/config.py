@@ -38,6 +38,9 @@ class Settings:
     gmail_credentials_file: str = os.getenv(
         "GMAIL_CREDENTIALS_FILE", os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
     )
+    seed_email: str = os.getenv("SEED_EMAIL", "").strip().lower()
+    seed_first_name: str = os.getenv("SEED_FIRST_NAME", "").strip()
+    seed_last_name: str = os.getenv("SEED_LAST_NAME", "").strip()
 
 
 settings = Settings()

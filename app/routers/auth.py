@@ -52,6 +52,8 @@ def verify_otp(payload: OtpVerifyRequest) -> OtpVerifyResponse:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    role = user_entry.role or "onboarded_user"
+    is_admin = role == "admin"
     session_id = session_store.create_session(user_entry.id)
     try:
         access_token = create_access_token(user_entry.id, session_id)
@@ -64,6 +66,8 @@ def verify_otp(payload: OtpVerifyRequest) -> OtpVerifyResponse:
     return OtpVerifyResponse(
         message="OTP verified",
         verified=True,
+        role=role,
+        is_admin=is_admin,
         user_exists=existed,
         user_onboarded=user_entry.onboarded_at is not None,
         user_id=user_entry.id,

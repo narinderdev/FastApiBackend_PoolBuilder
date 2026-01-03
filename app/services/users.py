@@ -3,6 +3,7 @@ import re
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.database import session_scope
 from app.models.user import UserEntry
 from app.schemas.users import PermissionFlags, UserCreate, UserResponse
@@ -31,6 +32,40 @@ def _is_onboarded(entry: UserEntry) -> bool:
     )
 
 
+def _role_for_email(email: str | None) -> str:
+    seed_email = settings.seed_email
+    if not seed_email or not email:
+        return "onboarded_user"
+    return "admin" if email.strip().lower() == seed_email else "onboarded_user"
+
+
+def _seed_profile_for_email(email: str | None) -> tuple[str | None, str | None]:
+    seed_email = settings.seed_email
+    if not seed_email or not email:
+        return None, None
+    if email.strip().lower() != seed_email:
+        return None, None
+    first_name = settings.seed_first_name or None
+    last_name = settings.seed_last_name or None
+    return first_name, last_name
+
+
+def _apply_seed_profile(entry: UserEntry) -> bool:
+    first_name, last_name = _seed_profile_for_email(entry.email)
+    updated = False
+    if first_name and not entry.first_name:
+        entry.first_name = first_name
+        updated = True
+    if last_name and not entry.last_name:
+        entry.last_name = last_name
+        updated = True
+    return updated
+
+
+def _get_role(entry: UserEntry) -> str:
+    return entry.role or "onboarded_user"
+
+
 class UserStore:
     def ensure_user_for_identifier(self, identifier: str) -> tuple[UserEntry, bool]:
         if "@" in identifier:
@@ -51,13 +86,27 @@ class UserStore:
                 )
             entry = result.scalar_one_or_none()
             if entry:
+                role = _role_for_email(entry.email)
+                if entry.role != role:
+                    entry.role = role
+                    entry.updated_at = datetime.now(timezone.utc)
+                if _apply_seed_profile(entry):
+                    entry.updated_at = datetime.now(timezone.utc)
+                session.flush()
                 return entry, True
 
             now = datetime.now(timezone.utc)
+            role = _role_for_email(key if field == "email" else None)
+            first_name, last_name = _seed_profile_for_email(
+                key if field == "email" else None
+            )
             entry = UserEntry(
                 email=key if field == "email" else None,
+                first_name=first_name,
+                last_name=last_name,
                 phone_number=key if field == "phone_number" else None,
                 permissions=None,
+                role=role,
                 created_at=now,
                 updated_at=now,
                 onboarded_at=None,
@@ -93,6 +142,7 @@ class UserStore:
                 address=payload.address,
                 job_title=payload.job_title,
                 permissions=permissions,
+                role=_role_for_email(email),
                 created_at=now,
                 updated_at=now,
                 onboarded_at=now if permissions else None,
@@ -121,6 +171,7 @@ class UserStore:
                 if existing and existing.id != user_id:
                     raise ValueError("Email already in use")
                 entry.email = email
+                entry.role = _role_for_email(entry.email)
 
             if phone_number != entry.phone_number:
                 existing_phone = session.execute(
@@ -136,6 +187,9 @@ class UserStore:
             entry.job_title = payload.job_title
             entry.permissions = permissions
             entry.updated_at = now
+            if entry.role is None:
+                entry.role = _role_for_email(entry.email)
+            _apply_seed_profile(entry)
             if _is_onboarded(entry) and entry.onboarded_at is None:
                 entry.onboarded_at = now
 
@@ -168,6 +222,22 @@ class UserStore:
             result = session.execute(select(UserEntry).where(field == key))
             return result.scalar_one_or_none() is not None
 
+    def ensure_roles(self) -> None:
+        now = datetime.now(timezone.utc)
+        with session_scope() as session:
+            entries = session.execute(select(UserEntry)).scalars().all()
+            for entry in entries:
+                role = _role_for_email(entry.email)
+                updated = False
+                if entry.role != role:
+                    entry.role = role
+                    updated = True
+                if _apply_seed_profile(entry):
+                    updated = True
+                if updated:
+                    entry.updated_at = now
+            session.flush()
+
     def _to_response(self, entry: UserEntry) -> UserResponse:
         permissions = entry.permissions or {}
         return UserResponse(
@@ -179,6 +249,7 @@ class UserStore:
             job_title=entry.job_title,
             permissions=PermissionFlags(**permissions),
             email=entry.email,
+            role=_get_role(entry),
             created_at=entry.created_at,
             onboarded_at=entry.onboarded_at,
         )

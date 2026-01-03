@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, health, users
+from app.config import settings
 from app.database import init_db
+from app.services.users import user_store
 
 app = FastAPI(title="FastAPI Backend")
 
@@ -21,6 +23,12 @@ app.include_router(users.router, prefix="/api")
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    if settings.seed_email:
+        try:
+            user_store.ensure_user_for_identifier(settings.seed_email)
+        except ValueError:
+            pass
+    user_store.ensure_roles()
 
 @app.get("/")
 def root():

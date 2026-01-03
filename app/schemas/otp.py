@@ -27,6 +27,8 @@ class OtpVerifyRequest(BaseModel):
 class OtpVerifyResponse(BaseModel):
     message: str
     verified: bool
+    role: Literal["admin", "onboarded_user"] | None = None
+    is_admin: bool | None = None
     user_exists: bool | None = None
     user_onboarded: bool | None = None
     user_id: int | None = None

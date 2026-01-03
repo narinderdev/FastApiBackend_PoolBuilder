@@ -77,6 +77,18 @@ def update_me(payload: UserCreate, user_id: int = Depends(get_current_user_id)) 
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+@router.put("/{user_id}", response_model=UserResponse)
+def update_user(
+    payload: UserCreate, user_id: int, _: int = Depends(get_current_user_id)
+) -> UserResponse:
+    try:
+        return user_store.update_user(user_id, payload)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = status.HTTP_404_NOT_FOUND if "not found" in detail.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate, user_id: int = Depends(get_current_user_id)

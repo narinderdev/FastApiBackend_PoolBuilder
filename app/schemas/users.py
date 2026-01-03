@@ -67,5 +67,6 @@ class UserResponse(BaseModel):
     job_title: str | None = None
     permissions: PermissionFlags = Field(default_factory=PermissionFlags)
     email: str | None = None
+    role: str | None = None
     created_at: datetime
     onboarded_at: datetime | None = None
