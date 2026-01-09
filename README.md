@@ -34,10 +34,16 @@ OTP_DEBUG=false
 OTP_EMAIL_SENDER=developer@glowante.com
 GMAIL_TOKEN_FILE=/path/to/credentials/token.json
 GMAIL_CREDENTIALS_FILE=/path/to/credentials/credentials.json
+
+# Twilio SMS
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token
+TWILIO_PHONE_NUMBER=+18156346829
+DEFAULT_COUNTRY_CODE=+1
 ```
 
 Notes:
-- Set `OTP_DEBUG=true` to return the OTP in the response body (dev only).
+- Set `OTP_DEBUG=false` to return the OTP in the response body (dev only).
 - Gmail credentials/token files are expected on disk (not committed).
 
 ## Run

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -34,6 +34,12 @@ class Settings:
     otp_email_subject: str = os.getenv(
         "OTP_EMAIL_SUBJECT", "Your Pool Builder OTP"
     )
+    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    twilio_phone_number: str = os.getenv(
+        "TWILIO_PHONE_NUMBER", os.getenv("PHONE_NUMBER", "")
+    )
+    default_country_code: str = os.getenv("DEFAULT_COUNTRY_CODE", "+1")
     gmail_token_file: str = os.getenv("GMAIL_TOKEN_FILE", "")
     gmail_credentials_file: str = os.getenv(
         "GMAIL_CREDENTIALS_FILE", os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Header, HTTPException, status
 
 from app.config import settings
@@ -5,6 +7,7 @@ from app.schemas.otp import OtpRequest, OtpResponse, OtpVerifyRequest, OtpVerify
 from app.schemas.tokens import TokenRefreshRequest, TokenRefreshResponse
 from app.services.email import EmailSendError, send_otp_email
 from app.services.otp import otp_store
+from app.services.sms import SmsSendError, send_otp_sms
 from app.services.sessions import session_store
 from app.services.tokens import (
     TokenError,
@@ -15,16 +18,30 @@ from app.services.tokens import (
 from app.services.users import user_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+LOGGER = logging.getLogger(__name__)
 
 
 @router.post("/otp/request", response_model=OtpResponse, response_model_exclude_none=True)
 def request_otp(payload: OtpRequest) -> OtpResponse:
+    LOGGER.info(
+        "OTP request payload received identifier=%s purpose=%s",
+        payload.identifier,
+        payload.purpose,
+    )
     record = otp_store.request_otp(payload.identifier, payload.purpose)
     identifier = payload.identifier.strip()
     if "@" in identifier:
         try:
             send_otp_email(identifier, record.code, payload.purpose)
         except EmailSendError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+    else:
+        try:
+            send_otp_sms(identifier, record.code, payload.purpose)
+        except SmsSendError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=str(exc),

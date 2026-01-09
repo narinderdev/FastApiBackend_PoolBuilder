@@ -1,3 +1,4 @@
+import logging
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -8,10 +9,12 @@ from app.schemas.otp import OTP_LENGTH, OtpResponse
 from app.schemas.users import UserCreate, UserResponse
 from app.services.otp import otp_store
 from app.services.sessions import session_store
+from app.services.sms import SmsSendError, send_otp_sms
 from app.services.tokens import TokenError, decode_access_token
 from app.services.users import user_store
 
 router = APIRouter(prefix="/users", tags=["users"])
+LOGGER = logging.getLogger(__name__)
 
 
 class PhoneOtpRequest(BaseModel):
@@ -98,6 +101,12 @@ def get_current_user_id(authorization: str | None = Header(default=None)) -> int
 def request_phone_otp(
     payload: PhoneOtpRequest, user_id: int = Depends(get_current_user_id)
 ) -> OtpResponse:
+    LOGGER.info(
+        "Phone OTP request payload received country_code=%s phone_number=%s user_id=%s",
+        payload.country_code,
+        payload.phone_number,
+        user_id,
+    )
     if user_store.is_phone_in_use(
         payload.phone_number, payload.country_code, exclude_user_id=user_id
     ):
@@ -107,6 +116,13 @@ def request_phone_otp(
         )
     identifier = f"{payload.country_code}{payload.phone_number}"
     record = otp_store.request_otp(identifier, "onboarding")
+    try:
+        send_otp_sms(identifier, record.code, "onboarding")
+    except SmsSendError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
     return OtpResponse(
         message="OTP sent",
         expires_in_seconds=settings.otp_ttl_seconds,
