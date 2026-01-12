@@ -1,5 +1,6 @@
-from datetime import datetime
 import re
+from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -17,14 +18,14 @@ class PermissionFlags(BaseModel):
 
 class UserCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
-    last_name: str | None = Field(default=None, max_length=50)
-    country_code: str | None = Field(default=None, max_length=8)
-    phone_number: str | None = Field(default=None, max_length=10)
+    last_name: Optional[str] = Field(default=None, max_length=50)
+    country_code: Optional[str] = Field(default=None, max_length=8)
+    phone_number: Optional[str] = Field(default=None, max_length=10)
     address: str = Field(min_length=1, max_length=255)
-    job_title: str | None = Field(default=None, max_length=100)
+    job_title: Optional[str] = Field(default=None, max_length=100)
     permissions: PermissionFlags
-    email: str | None = None
-    otp_code: str | None = Field(
+    email: Optional[str] = None
+    otp_code: Optional[str] = Field(
         default=None, min_length=OTP_LENGTH, max_length=OTP_LENGTH
     )
 
@@ -38,7 +39,7 @@ class UserCreate(BaseModel):
 
     @field_validator("last_name", "job_title")
     @classmethod
-    def normalize_optional_text(cls, value: str | None) -> str | None:
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
@@ -46,7 +47,7 @@ class UserCreate(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def normalize_phone_number(cls, value: str | None) -> str | None:
+    def normalize_phone_number(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         digits = re.sub(r"\D", "", value)
@@ -60,7 +61,7 @@ class UserCreate(BaseModel):
 
     @field_validator("country_code")
     @classmethod
-    def normalize_country_code(cls, value: str | None) -> str | None:
+    def normalize_country_code(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         digits = re.sub(r"\D", "", value)
@@ -81,15 +82,15 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    first_name: str | None = None
-    last_name: str | None = None
-    phone_number: str | None = None
-    address: str | None = None
-    job_title: str | None = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
+    job_title: Optional[str] = None
     permissions: PermissionFlags = Field(default_factory=PermissionFlags)
-    email: str | None = None
-    role: str | None = None
-    country_code: str | None = None
-    phone_verified: bool | None = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    country_code: Optional[str] = None
+    phone_verified: Optional[bool] = None
     created_at: datetime
-    onboarded_at: datetime | None = None
+    onboarded_at: Optional[datetime] = None

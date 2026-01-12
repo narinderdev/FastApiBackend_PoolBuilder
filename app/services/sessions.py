@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
 import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from sqlalchemy import delete, select, update
 
@@ -36,7 +37,7 @@ class SessionStore:
             )
             return result.rowcount > 0
 
-    def get_user_id(self, token: str) -> int | None:
+    def get_user_id(self, token: str) -> Optional[int]:
         now = datetime.now(timezone.utc)
         with session_scope() as session:
             session.execute(delete(SessionEntry).where(SessionEntry.expires_at <= now))

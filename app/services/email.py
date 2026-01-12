@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -161,7 +161,7 @@ def _resolve_client_details(token_data: dict[str, Any]) -> tuple[str, str]:
     return client_id, client_secret
 
 
-def _parse_expiry(raw_value: str | None) -> datetime | None:
+def _parse_expiry(raw_value: Optional[str]) -> Optional[datetime]:
     if not raw_value:
         return None
     try:

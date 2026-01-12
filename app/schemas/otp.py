@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ class OtpRequest(BaseModel):
 class OtpResponse(BaseModel):
     message: str
     expires_in_seconds: int
-    otp: str | None = None
+    otp: Optional[str] = None
 
 
 class OtpVerifyRequest(BaseModel):
@@ -27,13 +27,13 @@ class OtpVerifyRequest(BaseModel):
 class OtpVerifyResponse(BaseModel):
     message: str
     verified: bool
-    role: Literal["admin", "onboarded_user"] | None = None
-    is_admin: bool | None = None
-    user_exists: bool | None = None
-    user_onboarded: bool | None = None
-    user_id: int | None = None
-    access_token: str | None = None
-    refresh_token: str | None = None
-    token_type: str | None = None
-    expires_in_seconds: int | None = None
-    refresh_expires_in_seconds: int | None = None
+    role: Optional[Literal["admin", "onboarded_user"]] = None
+    is_admin: Optional[bool] = None
+    user_exists: Optional[bool] = None
+    user_onboarded: Optional[bool] = None
+    user_id: Optional[int] = None
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = None
+    expires_in_seconds: Optional[int] = None
+    refresh_expires_in_seconds: Optional[int] = None

@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, status
 
@@ -126,7 +127,7 @@ def refresh_tokens(payload: TokenRefreshRequest) -> TokenRefreshResponse:
 
 
 @router.post("/logout")
-def logout(authorization: str | None = Header(default=None)) -> dict:
+def logout(authorization: Optional[str] = Header(default=None)) -> dict:
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

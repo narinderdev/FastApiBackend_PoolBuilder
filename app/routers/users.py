@@ -1,5 +1,6 @@
 import logging
 import re
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -69,7 +70,7 @@ class PhoneOtpVerifyResponse(BaseModel):
     phone_verified: bool
 
 
-def get_current_user_id(authorization: str | None = Header(default=None)) -> int:
+def get_current_user_id(authorization: Optional[str] = Header(default=None)) -> int:
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

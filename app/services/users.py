@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
 import re
+from datetime import datetime, timezone
+from typing import Optional, Tuple
 
 from sqlalchemy import select
 
@@ -13,7 +14,7 @@ def _normalize_phone(phone_number: str) -> str:
     return re.sub(r"\D", "", phone_number)
 
 
-def _normalize_country_code(country_code: str | None) -> str | None:
+def _normalize_country_code(country_code: Optional[str]) -> Optional[str]:
     if country_code is None:
         return None
     digits = re.sub(r"\D", "", country_code)
@@ -26,7 +27,7 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def _has_permission_flags(permissions: dict | None) -> bool:
+def _has_permission_flags(permissions: Optional[dict]) -> bool:
     if not permissions:
         return False
     return any(permissions.values())
@@ -40,14 +41,14 @@ def _is_onboarded(entry: UserEntry) -> bool:
     )
 
 
-def _role_for_email(email: str | None) -> str:
+def _role_for_email(email: Optional[str]) -> str:
     seed_email = settings.seed_email
     if not seed_email or not email:
         return "onboarded_user"
     return "admin" if email.strip().lower() == seed_email else "onboarded_user"
 
 
-def _seed_profile_for_email(email: str | None) -> tuple[str | None, str | None]:
+def _seed_profile_for_email(email: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     seed_email = settings.seed_email
     if not seed_email or not email:
         return None, None
@@ -251,7 +252,7 @@ class UserStore:
             return self._to_response(entry)
 
     def is_phone_verified(
-        self, user_id: int, phone_number: str | None, country_code: str | None
+        self, user_id: int, phone_number: Optional[str], country_code: Optional[str]
     ) -> bool:
         if not phone_number:
             return False
@@ -270,8 +271,8 @@ class UserStore:
     def is_phone_in_use(
         self,
         phone_number: str,
-        country_code: str | None,
-        exclude_user_id: int | None = None,
+        country_code: Optional[str],
+        exclude_user_id: Optional[int] = None,
     ) -> bool:
         normalized = _normalize_phone(phone_number)
         normalized_country = _normalize_country_code(country_code)
@@ -288,7 +289,7 @@ class UserStore:
             return True
 
     def verify_phone(
-        self, user_id: int, phone_number: str, country_code: str | None
+        self, user_id: int, phone_number: str, country_code: Optional[str]
     ) -> UserResponse:
         normalized = _normalize_phone(phone_number)
         normalized_country = _normalize_country_code(country_code)
@@ -317,7 +318,7 @@ class UserStore:
             entries = result.scalars().all()
             return [self._to_response(entry) for entry in entries]
 
-    def get_user(self, user_id: int) -> UserResponse | None:
+    def get_user(self, user_id: int) -> Optional[UserResponse]:
         with session_scope() as session:
             entry = session.get(UserEntry, user_id)
             if entry is None:
