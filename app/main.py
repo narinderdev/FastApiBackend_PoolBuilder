@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
+app.include_router(auth.router)  # Compatibility for clients calling /auth/* without /api.
 
 
 @app.on_event("startup")
