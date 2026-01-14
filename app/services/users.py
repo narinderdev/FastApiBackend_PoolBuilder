@@ -91,6 +91,45 @@ def _get_role(entry: UserEntry) -> str:
 
 
 class UserStore:
+    def get_user_for_identifier(self, identifier: str) -> Optional[UserEntry]:
+        if "@" in identifier:
+            key = _normalize_email(identifier)
+            field = "email"
+        else:
+            key = _normalize_phone(identifier)
+            field = "phone_number"
+            if len(key) != 10:
+                raise ValueError("Phone number must be 10 digits")
+            if key.startswith("0"):
+                raise ValueError("Phone number cannot start with 0")
+
+        with session_scope() as session:
+            if field == "email":
+                result = session.execute(select(UserEntry).where(UserEntry.email == key))
+            else:
+                result = session.execute(
+                    select(UserEntry).where(UserEntry.phone_number == key)
+                )
+            entry = result.scalar_one_or_none()
+            if entry is None:
+                return None
+            role = _role_for_email(entry.email)
+            if entry.role != role:
+                entry.role = role
+                entry.updated_at = datetime.now(timezone.utc)
+            if _apply_seed_profile(entry):
+                entry.updated_at = datetime.now(timezone.utc)
+            if _apply_phone_provided(entry):
+                entry.updated_at = datetime.now(timezone.utc)
+            if _ensure_phone_verified(entry):
+                entry.updated_at = datetime.now(timezone.utc)
+            if field == "phone_number" and entry.phone_number:
+                if entry.phone_verified is not True:
+                    entry.phone_verified = True
+                    entry.updated_at = datetime.now(timezone.utc)
+            session.flush()
+            return entry
+
     def ensure_user_for_identifier(self, identifier: str) -> tuple[UserEntry, bool]:
         if "@" in identifier:
             key = _normalize_email(identifier)

@@ -31,7 +31,9 @@ def request_otp(payload: OtpRequest) -> OtpResponse:
     )
     record = otp_store.request_otp(payload.identifier, payload.purpose)
     identifier = payload.identifier.strip()
-    if "@" in identifier:
+    if settings.otp_debug:
+        LOGGER.warning("OTP debug enabled; skipping send for identifier=%s", identifier)
+    elif "@" in identifier:
         try:
             send_otp_email(identifier, record.code, payload.purpose)
         except EmailSendError as exc:
@@ -64,12 +66,17 @@ def verify_otp(payload: OtpVerifyRequest) -> OtpVerifyResponse:
             detail="Invalid or expired OTP",
         )
     try:
-        user_entry, existed = user_store.ensure_user_for_identifier(payload.identifier)
+        user_entry = user_store.get_user_for_identifier(payload.identifier)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    if user_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please sign up.",
+        )
     role = user_entry.role or "onboarded_user"
     is_admin = role == "admin"
     session_id = session_store.create_session(user_entry.id)
@@ -86,7 +93,7 @@ def verify_otp(payload: OtpVerifyRequest) -> OtpVerifyResponse:
         verified=True,
         role=role,
         is_admin=is_admin,
-        user_exists=existed,
+        user_exists=True,
         user_onboarded=user_entry.onboarded_at is not None,
         user_id=user_entry.id,
         access_token=access_token,

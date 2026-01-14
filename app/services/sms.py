@@ -25,6 +25,10 @@ def send_otp_sms(to_phone: str, code: str, purpose: str) -> None:
 
     to_number = _normalize_e164(to_phone)
     from_number = _normalize_e164(from_phone)
+    masked_sid = (
+        f"{account_sid[:2]}...{account_sid[-4:]}" if len(account_sid) > 6 else "***"
+    )
+    token_length = len(auth_token)
     body = _build_body(code, purpose, settings.otp_ttl_seconds)
     LOGGER.warning("Sending OTP SMS to=%s from=%s", to_number, from_number)
     endpoint = (
@@ -51,9 +55,12 @@ def send_otp_sms(to_phone: str, code: str, purpose: str) -> None:
     except HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
         LOGGER.error(
-            "Twilio API error to=%s from=%s response=%s",
+            "Twilio API error to=%s from=%s account_sid=%s auth_token_len=%s status=%s response=%s",
             to_number,
             from_number,
+            masked_sid,
+            token_length,
+            exc.code,
             error_body,
         )
         raise SmsSendError("Failed to send OTP SMS") from exc
