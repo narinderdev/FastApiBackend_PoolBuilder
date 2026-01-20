@@ -12,3 +12,13 @@ class SessionEntry(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+def to_dict(self, not_included_columns=None):
+    if not_included_columns is None:
+        not_included_columns = []
+
+    return {
+        column.name: getattr(self, column.name)
+        for column in self.__table__.columns
+        if column.name not in not_included_columns
+    }

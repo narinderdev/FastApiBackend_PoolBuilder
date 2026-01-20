@@ -97,8 +97,8 @@ class UserStore:
             "updated_at":now,
             "onboarded_at":None,
         }
-        _add_record("user", **entry)
-        entry=UserEntry(**entry)
+        entry=_add_record("user", **entry)
+        
         return entry, False
 
     def create_user(
@@ -159,35 +159,37 @@ class UserStore:
             entry.role = self._role_for_email(entry.email)
 
 
-            phone_changed = phone_number != entry.phone_number
-            country_changed = country_code != entry.country_code
-            if phone_changed or country_changed:
-                if phone_number:
-                    existing_phone = _select_one_or_none("user", phone_number=phone_number)
-                    if existing_phone and existing_phone.id != user_id:
-                        raise ValueError("Phone number already in use")
+        phone_changed = phone_number != entry.phone_number
+        country_changed = country_code != entry.country_code
+        if phone_changed or country_changed:
+            if phone_number:
+                existing_phone = _select_one_or_none("user", phone_number=phone_number)
+                if existing_phone and existing_phone.id != user_id:
+                    raise ValueError("Phone number already in use")
 
-            entry.phone_number = phone_number
-            entry.country_code = country_code if phone_number else None
+        entry.phone_number = phone_number
+        entry.country_code = country_code if phone_number else None
+        entry.phone_verified = False
+        if not phone_number:
+            entry.country_code = None
             entry.phone_verified = False
-            if not phone_number:
-                entry.country_code = None
-                entry.phone_verified = False
 
-            entry.first_name = payload.first_name
-            entry.last_name = payload.last_name
-            entry.address = payload.address
-            entry.job_title = payload.job_title
-            entry.permissions = permissions
-            entry.updated_at = now
-            if entry.role is None:
-                entry.role = self._role_for_email(entry.email)
-            self._apply_seed_profile(entry)
-            self._apply_phone_provided(entry)
-            self._ensure_phone_verified(entry)
-            if self._is_onboarded(entry) and entry.onboarded_at is None:
-                entry.onboarded_at = now
-            return self._to_response(entry)
+        entry.first_name = payload.first_name
+        entry.last_name = payload.last_name
+        entry.address = payload.address
+        entry.job_title = payload.job_title
+        entry.permissions = permissions
+        entry.updated_at = now
+        if entry.role is None:
+            entry.role = self._role_for_email(entry.email)
+        self._apply_seed_profile(entry)
+        self._apply_phone_provided(entry)
+        self._ensure_phone_verified(entry)
+        if self._is_onboarded(entry) and entry.onboarded_at is None:
+            entry.onboarded_at = now
+        filter={"id":entry.id,"email":entry.email}
+        _update_records("user", values=entry.to_dict(["id","email"]),**filter)
+        return self._to_response(entry)
 
     def is_phone_verified(
         self, user_id: int, phone_number: Optional[str], country_code: Optional[str]

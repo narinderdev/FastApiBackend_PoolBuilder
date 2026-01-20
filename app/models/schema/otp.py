@@ -17,3 +17,13 @@ class OtpEntry(Base):
         UniqueConstraint("identifier", "purpose", name="uq_otp_identifier_purpose"),
         Index("ix_otp_expires_at", "expires_at"),
     )
+
+    def to_dict(self, not_included_columns=None):
+        if not_included_columns is None:
+            not_included_columns = []
+
+        return {
+            column.name: getattr(self, column.name)
+            for column in self.__table__.columns
+            if column.name not in not_included_columns
+        }

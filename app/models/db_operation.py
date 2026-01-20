@@ -36,7 +36,7 @@ def _add_record(db: str, **kwargs):
 
     with session_scope() as session:
         session.add(instance)
-
+        session.flush()
     return instance
 
 def _select_records(db: str, *, order_by=None, **kwargs):
@@ -76,9 +76,11 @@ def _select_one_or_none(db: str, **kwargs):
 
     # Create the query with the constructed conditions
     with session_scope() as session:
-        return session.execute(
+        entry= session.execute(
             select(model).where(and_(*conditions))  # using `and_` for combining conditions
         ).scalar_one_or_none()
+        session.flush()
+        return entry
 
 def _scalar_one_or_none_operation(
     *,
