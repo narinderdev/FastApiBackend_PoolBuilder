@@ -9,7 +9,7 @@ from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-
+from app.schemas.email import EmailSendError
 from app.config import settings
 
 LOGGER = logging.getLogger(__name__)
@@ -17,8 +17,6 @@ LOGGER = logging.getLogger(__name__)
 GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 
 
-class EmailSendError(RuntimeError):
-    pass
 
 
 def send_otp_email(to_email: str, code: str, purpose: str) -> None:

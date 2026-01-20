@@ -12,90 +12,12 @@ from app.services.otp import otp_store
 from app.services.sessions import session_store
 from app.services.sms import SmsSendError, send_otp_sms
 from app.services.tokens import TokenError, decode_access_token
-from app.services.users import user_store
+from app.services.users import user_store,get_current_user_id
+
 
 router = APIRouter(prefix="/users", tags=["users"])
 LOGGER = logging.getLogger(__name__)
 
-
-class PhoneOtpRequest(BaseModel):
-    country_code: str = Field(min_length=1, max_length=8)
-    phone_number: str = Field(min_length=10, max_length=10)
-
-    @field_validator("phone_number")
-    @classmethod
-    def normalize_phone_number(cls, value: str) -> str:
-        digits = re.sub(r"\D", "", value)
-        if len(digits) != 10:
-            raise ValueError("Phone number must be 10 digits")
-        if digits.startswith("0"):
-            raise ValueError("Phone number cannot start with 0")
-        return digits
-
-    @field_validator("country_code")
-    @classmethod
-    def normalize_country_code(cls, value: str) -> str:
-        digits = re.sub(r"\D", "", value)
-        if len(digits) < 1 or len(digits) > 4:
-            raise ValueError("Country code must be 1 to 4 digits")
-        return f"+{digits}"
-
-
-class PhoneOtpVerifyRequest(BaseModel):
-    country_code: str = Field(min_length=1, max_length=8)
-    phone_number: str = Field(min_length=10, max_length=10)
-    code: str = Field(min_length=OTP_LENGTH, max_length=OTP_LENGTH)
-
-    @field_validator("phone_number")
-    @classmethod
-    def normalize_phone_number(cls, value: str) -> str:
-        digits = re.sub(r"\D", "", value)
-        if len(digits) != 10:
-            raise ValueError("Phone number must be 10 digits")
-        if digits.startswith("0"):
-            raise ValueError("Phone number cannot start with 0")
-        return digits
-
-    @field_validator("country_code")
-    @classmethod
-    def normalize_country_code(cls, value: str) -> str:
-        digits = re.sub(r"\D", "", value)
-        if len(digits) < 1 or len(digits) > 4:
-            raise ValueError("Country code must be 1 to 4 digits")
-        return f"+{digits}"
-
-
-class PhoneOtpVerifyResponse(BaseModel):
-    message: str
-    phone_verified: bool
-
-
-def get_current_user_id(authorization: Optional[str] = Header(default=None)) -> int:
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-        )
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header",
-        )
-    try:
-        access_data = decode_access_token(token)
-    except TokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
-        ) from exc
-    user_id = session_store.get_user_id(access_data.session_id)
-    if user_id is None or user_id != access_data.user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session token",
-        )
-    return access_data.user_id
 
 
 # @router.post("/otp/request", response_model=OtpResponse, response_model_exclude_none=True)

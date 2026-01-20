@@ -8,95 +8,19 @@ from app.config import settings
 from app.models.schema.user import UserEntry
 from app.schemas.users import PermissionFlags, UserCreate, UserResponse
 from app.models.db_operation import _delete_expired_record_,_select_one_or_none,_update_records,_add_record,_select_records
-
-
-def _normalize_phone(phone_number: str) -> str:
-    return re.sub(r"\D", "", phone_number)
-
-
-def _normalize_country_code(country_code: Optional[str]) -> Optional[str]:
-    if country_code is None:
-        return None
-    digits = re.sub(r"\D", "", country_code)
-    if not digits:
-        return None
-    return f"+{digits}"
-
-
-def _normalize_email(email: str) -> str:
-    return email.strip().lower()
-
-
-def _has_permission_flags(permissions: Optional[dict]) -> bool:
-    if not permissions:
-        return False
-    return any(permissions.values())
-
-
-def _is_onboarded(entry: UserEntry) -> bool:
-    return bool(
-        entry.first_name
-        and entry.address
-        and _has_permission_flags(entry.permissions)
-    )
-
-
-def _role_for_email(email: Optional[str]) -> str:
-    seed_email = settings.seed_email
-    if not seed_email or not email:
-        return "onboarded_user"
-    return "admin" if email.strip().lower() == seed_email else "onboarded_user"
-
-
-def _seed_profile_for_email(email: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-    seed_email = settings.seed_email
-    if not seed_email or not email:
-        return None, None
-    if email.strip().lower() != seed_email:
-        return None, None
-    first_name = settings.seed_first_name or None
-    last_name = settings.seed_last_name or None
-    return first_name, last_name
-
-
-def _apply_seed_profile(entry: UserEntry) -> bool:
-    first_name, last_name = _seed_profile_for_email(entry.email)
-    updated = False
-    if first_name and not entry.first_name:
-        entry.first_name = first_name
-        updated = True
-    if last_name and not entry.last_name:
-        entry.last_name = last_name
-        updated = True
-    return updated
-
-
-def _apply_phone_provided(entry: UserEntry) -> bool:
-    provided = bool(entry.phone_number)
-    if entry.phone_provided == provided:
-        return False
-    entry.phone_provided = provided
-    return True
-
-
-def _ensure_phone_verified(entry: UserEntry) -> bool:
-    if entry.phone_verified is None:
-        entry.phone_verified = False
-        return True
-    return False
-
-
-def _get_role(entry: UserEntry) -> str:
-    return entry.role or "onboarded_user"
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field, field_validator
+from app.services.sessions import session_store
+from app.services.tokens import TokenError, decode_access_token
 
 
 class UserStore:
     def get_user_for_identifier(self, identifier: str) -> Optional[UserEntry]:
         if "@" in identifier:
-            key = _normalize_email(identifier)
+            key = self._normalize_email(identifier)
             field = "email"
         else:
-            key = _normalize_phone(identifier)
+            key = self._normalize_phone(identifier)
             field = "phone_number"
             if len(key) != 10:
                 raise ValueError("Phone number must be 10 digits")
@@ -107,15 +31,15 @@ class UserStore:
         if entry is None:
             return None
 
-        role = _role_for_email(entry.email)
+        role = self._role_for_email(entry.email)
         if entry.role != role:
             entry.role = role
             entry.updated_at = datetime.now(timezone.utc)
-        if _apply_seed_profile(entry):
+        if self._apply_seed_profile(entry):
             entry.updated_at = datetime.now(timezone.utc)
-        if _apply_phone_provided(entry):
+        if self._apply_phone_provided(entry):
             entry.updated_at = datetime.now(timezone.utc)
-        if _ensure_phone_verified(entry):
+        if self._ensure_phone_verified(entry):
             entry.updated_at = datetime.now(timezone.utc)
         if field == "phone_number" and entry.phone_number:
             if entry.phone_verified is not True:
@@ -125,10 +49,10 @@ class UserStore:
 
     def ensure_user_for_identifier(self, identifier: str) -> tuple[UserEntry, bool]:
         if "@" in identifier:
-            key = _normalize_email(identifier)
+            key = self._normalize_email(identifier)
             field = "email"
         else:
-            key = _normalize_phone(identifier)
+            key = self._normalize_phone(identifier)
             field = "phone_number"
             if len(key) != 10:
                 raise ValueError("Phone number must be 10 digits")
@@ -138,15 +62,15 @@ class UserStore:
         entry = _select_one_or_none("user", **{field: key})  
 
         if entry:
-            role = _role_for_email(entry.email)
+            role = self._role_for_email(entry.email)
             if entry.role != role:
                 entry.role = role
                 entry.updated_at = datetime.now(timezone.utc)
-            if _apply_seed_profile(entry):
+            if self._apply_seed_profile(entry):
                 entry.updated_at = datetime.now(timezone.utc)
-            if _apply_phone_provided(entry):
+            if self._apply_phone_provided(entry):
                 entry.updated_at = datetime.now(timezone.utc)
-            if _ensure_phone_verified(entry):
+            if self._ensure_phone_verified(entry):
                 entry.updated_at = datetime.now(timezone.utc)
             if field == "phone_number" and entry.phone_number:
                 if entry.phone_verified is not True:
@@ -155,8 +79,8 @@ class UserStore:
             return entry, True
 
         now = datetime.now(timezone.utc)
-        role = _role_for_email(key if field == "email" else None)
-        first_name, last_name = _seed_profile_for_email(
+        role = self._role_for_email(key if field == "email" else None)
+        first_name, last_name = self._seed_profile_for_email(
             key if field == "email" else None
         )
         entry = {            
@@ -181,9 +105,9 @@ class UserStore:
         self, payload: UserCreate, phone_verified: bool = False
     ) -> UserResponse:
         now = datetime.now(timezone.utc)
-        email = _normalize_email(payload.email) if payload.email else None
+        email = self._normalize_email(payload.email) if payload.email else None
         phone_number = payload.phone_number
-        country_code = _normalize_country_code(payload.country_code)
+        country_code = self._normalize_country_code(payload.country_code)
         permissions = payload.permissions.model_dump()
 
         if email and _select_one_or_none("user", email=email):
@@ -202,14 +126,14 @@ class UserStore:
             "address":payload.address,
             "job_title":payload.job_title,
             "permissions":permissions,
-            "role":_role_for_email(email),
+            "role":self._role_for_email(email),
             "phone_provided":bool(phone_number),
             "phone_verified":bool(phone_number) and phone_verified,
             "created_at":now,
             "updated_at":now,
             "onboarded_at":now if permissions else None,
         }
-        if _is_onboarded(entry):
+        if self._is_onboarded(entry):
             entry["onboarded_at"] = now
         _add_record("user", **entry)
         entry=UserEntry(**entry)
@@ -217,9 +141,9 @@ class UserStore:
 
     def update_user(self, user_id: int, payload: UserCreate) -> UserResponse:
         now = datetime.now(timezone.utc)
-        email = _normalize_email(payload.email) if payload.email else None
+        email = self._normalize_email(payload.email) if payload.email else None
         phone_number = payload.phone_number
-        country_code = _normalize_country_code(payload.country_code)
+        country_code = self._normalize_country_code(payload.country_code)
         permissions = payload.permissions.model_dump()
 
         entry = _select_one_or_none("user", id=user_id)
@@ -232,7 +156,7 @@ class UserStore:
                 raise ValueError("Email already in use")
 
             entry.email = email
-            entry.role = _role_for_email(entry.email)
+            entry.role = self._role_for_email(entry.email)
 
 
             phone_changed = phone_number != entry.phone_number
@@ -257,11 +181,11 @@ class UserStore:
             entry.permissions = permissions
             entry.updated_at = now
             if entry.role is None:
-                entry.role = _role_for_email(entry.email)
-            _apply_seed_profile(entry)
-            _apply_phone_provided(entry)
-            _ensure_phone_verified(entry)
-            if _is_onboarded(entry) and entry.onboarded_at is None:
+                entry.role = self._role_for_email(entry.email)
+            self._apply_seed_profile(entry)
+            self._apply_phone_provided(entry)
+            self._ensure_phone_verified(entry)
+            if self._is_onboarded(entry) and entry.onboarded_at is None:
                 entry.onboarded_at = now
             return self._to_response(entry)
 
@@ -270,8 +194,8 @@ class UserStore:
     ) -> bool:
         if not phone_number:
             return False
-        normalized = _normalize_phone(phone_number)
-        normalized_country = _normalize_country_code(country_code)
+        normalized = self._normalize_phone(phone_number)
+        normalized_country = self._normalize_country_code(country_code)
         entry = _select_one_or_none("user", id=user_id)
 
         if entry is None:
@@ -288,8 +212,8 @@ class UserStore:
         country_code: Optional[str],
         exclude_user_id: Optional[int] = None,
     ) -> bool:
-        normalized = _normalize_phone(phone_number)
-        normalized_country = _normalize_country_code(country_code)
+        normalized = self._normalize_phone(phone_number)
+        normalized_country = self._normalize_country_code(country_code)
         entry = _select_one_or_none("user", phone_number=normalized)
         if entry is None:
             return False
@@ -303,8 +227,8 @@ class UserStore:
     def verify_phone(
         self, user_id: int, phone_number: str, country_code: Optional[str]
     ) -> UserResponse:
-        normalized = _normalize_phone(phone_number)
-        normalized_country = _normalize_country_code(country_code)
+        normalized = self._normalize_phone(phone_number)
+        normalized_country = self._normalize_country_code(country_code)
         now = datetime.now(timezone.utc)
         entry = _select_one_or_none("user", id=user_id)
         if entry is None:
@@ -340,10 +264,10 @@ class UserStore:
         if not identifier:
             return False
         if "@" in identifier:
-            key = _normalize_email(identifier)
+            key = self._normalize_email(identifier)
             field = UserEntry.email
         else:
-            key = _normalize_phone(identifier)
+            key = self._normalize_phone(identifier)
             field = UserEntry.phone_number
         result = _select_one_or_none(
             "user",
@@ -357,16 +281,16 @@ class UserStore:
         entries  = _select_records("user")
 
         for entry in entries:
-            role = _role_for_email(entry.email)
+            role = self._role_for_email(entry.email)
             updated = False
             if entry.role != role:
                 entry.role = role
                 updated = True
-            if _apply_seed_profile(entry):
+            if self._apply_seed_profile(entry):
                 updated = True
-            if _apply_phone_provided(entry):
+            if self._apply_phone_provided(entry):
                 updated = True
-            if _ensure_phone_verified(entry):
+            if self._ensure_phone_verified(entry):
                 updated = True
             if updated:
                 entry.updated_at = now
@@ -382,12 +306,116 @@ class UserStore:
             job_title=entry.job_title,
             permissions=PermissionFlags(**permissions),
             email=entry.email,
-            role=_get_role(entry),
+            role=self._get_role(entry),
             country_code=entry.country_code,
             phone_verified=bool(entry.phone_verified),
             created_at=entry.created_at,
             onboarded_at=entry.onboarded_at,
         )
+    def _normalize_phone(self,phone_number: str) -> str:
+        return re.sub(r"\D", "", phone_number)
+    
+    def _normalize_country_code(self,country_code: Optional[str]) -> Optional[str]:
+        if country_code is None:
+            return None
+        digits = re.sub(r"\D", "", country_code)
+        if not digits:
+            return None
+        return f"+{digits}"
 
+    def _normalize_email(self,email: str) -> str:
+        return email.strip().lower()
+
+
+    def _has_permission_flags(self,permissions: Optional[dict]) -> bool:
+        if not permissions:
+            return False
+        return any(permissions.values())
+
+
+    def _is_onboarded(self,entry: UserEntry) -> bool:
+        return bool(
+            entry.first_name
+            and entry.address
+            and self._has_permission_flags(entry.permissions)
+        )
+
+
+    def _role_for_email(self,email: Optional[str]) -> str:
+        seed_email = settings.seed_email
+        if not seed_email or not email:
+            return "onboarded_user"
+        return "admin" if email.strip().lower() == seed_email else "onboarded_user"
+
+
+    def _seed_profile_for_email(self,email: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        seed_email = settings.seed_email
+        if not seed_email or not email:
+            return None, None
+        if email.strip().lower() != seed_email:
+            return None, None
+        first_name = settings.seed_first_name or None
+        last_name = settings.seed_last_name or None
+        return first_name, last_name
+
+
+    def _apply_seed_profile(self,entry: UserEntry) -> bool:
+        first_name, last_name = self._seed_profile_for_email(entry.email)
+        updated = False
+        if first_name and not entry.first_name:
+            entry.first_name = first_name
+            updated = True
+        if last_name and not entry.last_name:
+            entry.last_name = last_name
+            updated = True
+        return updated
+
+
+    def _apply_phone_provided(self,entry: UserEntry) -> bool:
+        provided = bool(entry.phone_number)
+        if entry.phone_provided == provided:
+            return False
+        entry.phone_provided = provided
+        return True
+
+
+    def _ensure_phone_verified(self,entry: UserEntry) -> bool:
+        if entry.phone_verified is None:
+            entry.phone_verified = False
+            return True
+        return False
+
+
+    def _get_role(self,entry: UserEntry) -> str:
+        return entry.role or "onboarded_user"
+
+def get_current_user_id(authorization: Optional[str] = Header(default=None)) -> int:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header",
+        )
+    try:
+        access_data = decode_access_token(token)
+    except TokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+    user_id = session_store.get_user_id(access_data.session_id)
+    if user_id is None or user_id != access_data.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session token",
+        )
+    return access_data.user_id
 
 user_store = UserStore()
+
+

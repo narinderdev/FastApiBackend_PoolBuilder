@@ -1,25 +1,10 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-
+from app.schemas.tokens import TokenError,AccessTokenData,RefreshTokenData
 import jwt
 
 from app.config import settings
 
 
-class TokenError(ValueError):
-    pass
-
-
-@dataclass(frozen=True)
-class AccessTokenData:
-    user_id: int
-    session_id: str
-
-
-@dataclass(frozen=True)
-class RefreshTokenData:
-    user_id: int
-    session_id: str
 
 
 def _utcnow() -> datetime:

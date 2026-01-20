@@ -1,7 +1,7 @@
 from typing import Literal, Optional
-
 from pydantic import BaseModel, Field
-
+from dataclasses import dataclass
+from datetime import datetime
 from app.config import settings
 
 OTP_LENGTH = settings.otp_length
@@ -37,3 +37,9 @@ class OtpVerifyResponse(BaseModel):
     token_type: Optional[str] = None
     expires_in_seconds: Optional[int] = None
     refresh_expires_in_seconds: Optional[int] = None
+
+@dataclass(frozen=True)
+class OtpRecord:
+    code: str
+    expires_at: datetime
+    purpose: str

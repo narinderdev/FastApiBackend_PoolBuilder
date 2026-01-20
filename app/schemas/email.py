@@ -1,0 +1,4 @@
+
+
+class EmailSendError(RuntimeError):
+    pass

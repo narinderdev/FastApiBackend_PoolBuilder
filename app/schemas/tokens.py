@@ -1,5 +1,5 @@
 from typing import Optional
-
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 
@@ -12,3 +12,19 @@ class TokenRefreshResponse(BaseModel):
     token_type: str = "bearer"
     expires_in_seconds: int
     refresh_token: Optional[str] = None
+
+class TokenError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class AccessTokenData:
+    user_id: int
+    session_id: str
+
+
+@dataclass(frozen=True)
+class RefreshTokenData:
+    user_id: int
+    session_id: str
+

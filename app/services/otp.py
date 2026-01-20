@@ -4,16 +4,9 @@ import re
 import secrets
 
 from sqlalchemy import delete, select
-
+from app.schemas.otp import OtpRecord
 from app.config import settings
 from app.models.db_operation import _delete_expired_record_,_delete_records,_add_record,_select_records,_scalar_one_or_none_operation
-
-@dataclass(frozen=True)
-class OtpRecord:
-    code: str
-    expires_at: datetime
-    purpose: str
-
 
 def normalize_identifier(identifier: str) -> str:
     cleaned = identifier.strip()
