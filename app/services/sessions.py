@@ -5,8 +5,9 @@ from typing import Optional
 from sqlalchemy import delete, select, update
 
 from app.config import settings
-from app.database import session_scope
-from app.models.session import SessionEntry
+from app.models.schema.session import SessionEntry
+from app.models.db_operation import _delete_expired_record_,_select_one_or_none,_update_records,_add_record
+
 
 
 class SessionStore:
@@ -14,44 +15,56 @@ class SessionStore:
         now = datetime.now(timezone.utc)
         token = secrets.token_urlsafe(32)
         expires_at = now + timedelta(days=settings.refresh_token_expire_days)
-        with session_scope() as session:
-            session.execute(delete(SessionEntry).where(SessionEntry.expires_at <= now))
-            session.add(
-                SessionEntry(
-                    token=token,
-                    user_id=user_id,
-                    created_at=now,
-                    expires_at=expires_at,
-                    revoked_at=None,
-                )
-            )
+        _delete_expired_record_(
+            "session",
+            now=now,
+        )
+        entry={
+             "token":token,
+            "user_id":user_id,
+            "created_at":now,
+            "expires_at":expires_at,
+            "revoked_at":None
+        }
+        _add_record(
+            "session",
+            **entry
+        )
+
         return token
 
     def revoke_session(self, token: str) -> bool:
         now = datetime.now(timezone.utc)
-        with session_scope() as session:
-            result = session.execute(
-                update(SessionEntry)
-                .where(SessionEntry.token == token, SessionEntry.revoked_at.is_(None))
-                .values(revoked_at=now)
-            )
-            return result.rowcount > 0
+        _delete_expired_record_(
+            "session",
+            now=now,
+        )
+        result=_update_records(
+            "session",
+            token=token,
+            revoked_at=None,
+            values={
+                "revoked_at": now,
+            },
+        )
+
+        return result > 0
 
     def get_user_id(self, token: str) -> Optional[int]:
-        now = datetime.now(timezone.utc)
-        with session_scope() as session:
-            session.execute(delete(SessionEntry).where(SessionEntry.expires_at <= now))
-            result = session.execute(
-                select(SessionEntry).where(
-                    SessionEntry.token == token,
-                    SessionEntry.revoked_at.is_(None),
-                    SessionEntry.expires_at > now,
-                )
+            now = datetime.now(timezone.utc)
+            payload ={"token":token,
+                            "revoked_at":None,
+                            "expires_at":(">", now)}
+            entry = _select_one_or_none(
+                "session",
+                **payload
             )
-            entry = result.scalar_one_or_none()
+
             if entry is None:
                 return None
+
             return entry.user_id
+
 
 
 session_store = SessionStore()

@@ -6,9 +6,7 @@ import secrets
 from sqlalchemy import delete, select
 
 from app.config import settings
-from app.database import session_scope
-from app.models.otp import OtpEntry
-
+from app.models.db_operation import _delete_expired_record_,_delete_records,_add_record,_select_records,_scalar_one_or_none_operation
 
 @dataclass(frozen=True)
 class OtpRecord:
@@ -38,59 +36,50 @@ class OtpStore:
             purpose=purpose,
         )
         normalized = normalize_identifier(identifier)
+        # Delete any existing OTPs for this identifier + purpos
+        _delete_expired_record_("otp",now)
+        _delete_records(
+            "otp",
+            identifier=normalized,
+            purpose=purpose,
+        )
+        entry={"identifier":normalized,
+            "purpose":purpose,
+            "code":record.code,
+            "expires_at":record.expires_at,
+            "created_at":now,}
+        # Insert new OTP
+        _add_record(
+            "otp",
+            **entry
+        )
 
-        with session_scope() as session:
-            session.execute(delete(OtpEntry).where(OtpEntry.expires_at <= now))
-            session.execute(
-                delete(OtpEntry).where(
-                    OtpEntry.identifier == normalized,
-                    OtpEntry.purpose == purpose,
-                )
-            )
-            session.add(
-                OtpEntry(
-                    identifier=normalized,
-                    purpose=purpose,
-                    code=record.code,
-                    expires_at=record.expires_at,
-                    created_at=now,
-                )
-            )
         return record
 
     def verify_otp(self, identifier: str, purpose: str, code: str) -> bool:
         now = datetime.now(timezone.utc)
         normalized = normalize_identifier(identifier)
         clean_code = code.strip()
-        if settings.otp_debug and clean_code == "123456" and "@" not in normalized:
-            with session_scope() as session:
-                session.execute(delete(OtpEntry).where(OtpEntry.expires_at <= now))
-                session.execute(
-                    delete(OtpEntry).where(
-                        OtpEntry.identifier == normalized,
-                        OtpEntry.purpose == purpose,
-                    )
-                )
-            return True
 
-        with session_scope() as session:
-            session.execute(delete(OtpEntry).where(OtpEntry.expires_at <= now))
-            result = session.execute(
-                select(OtpEntry).where(
-                    OtpEntry.identifier == normalized,
-                    OtpEntry.purpose == purpose,
-                )
+        if settings.otp_debug and clean_code == "123456" and "@" not in normalized:
+            _delete_expired_record_("otp",now)
+            _delete_records(
+                "otp",
+                identifier=normalized,
+                purpose=purpose,
             )
-            entry = result.scalar_one_or_none()
-            if entry is None:
-                return False
-            if entry.expires_at <= now:
-                session.delete(entry)
-                return False
-            if entry.code != clean_code:
-                return False
-            session.delete(entry)
             return True
+        payload={
+                "identifier":normalized,
+                "purpose":purpose
+                }
+        entry=_scalar_one_or_none_operation(
+                    db="otp",  # Replace with the actual database name
+                    now=now,
+                    clean_code=clean_code,
+                    **payload # Assuming `purpose` is one of the filters or additional parameters
+                )
+        return entry
 
     def _generate_code(self) -> str:
         value = secrets.randbelow(10**self._code_length)

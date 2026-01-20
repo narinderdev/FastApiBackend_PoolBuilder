@@ -5,9 +5,9 @@ from typing import Optional, Tuple
 from sqlalchemy import select
 
 from app.config import settings
-from app.database import session_scope
-from app.models.user import UserEntry
+from app.models.schema.user import UserEntry
 from app.schemas.users import PermissionFlags, UserCreate, UserResponse
+from app.models.db_operation import _delete_expired_record_,_select_one_or_none,_update_records,_add_record,_select_records
 
 
 def _normalize_phone(phone_number: str) -> str:
@@ -103,16 +103,41 @@ class UserStore:
             if key.startswith("0"):
                 raise ValueError("Phone number cannot start with 0")
 
-        with session_scope() as session:
-            if field == "email":
-                result = session.execute(select(UserEntry).where(UserEntry.email == key))
-            else:
-                result = session.execute(
-                    select(UserEntry).where(UserEntry.phone_number == key)
-                )
-            entry = result.scalar_one_or_none()
-            if entry is None:
-                return None
+        entry = _select_one_or_none("user", **{field: key})
+        if entry is None:
+            return None
+
+        role = _role_for_email(entry.email)
+        if entry.role != role:
+            entry.role = role
+            entry.updated_at = datetime.now(timezone.utc)
+        if _apply_seed_profile(entry):
+            entry.updated_at = datetime.now(timezone.utc)
+        if _apply_phone_provided(entry):
+            entry.updated_at = datetime.now(timezone.utc)
+        if _ensure_phone_verified(entry):
+            entry.updated_at = datetime.now(timezone.utc)
+        if field == "phone_number" and entry.phone_number:
+            if entry.phone_verified is not True:
+                entry.phone_verified = True
+                entry.updated_at = datetime.now(timezone.utc)
+        return entry
+
+    def ensure_user_for_identifier(self, identifier: str) -> tuple[UserEntry, bool]:
+        if "@" in identifier:
+            key = _normalize_email(identifier)
+            field = "email"
+        else:
+            key = _normalize_phone(identifier)
+            field = "phone_number"
+            if len(key) != 10:
+                raise ValueError("Phone number must be 10 digits")
+            if key.startswith("0"):
+                raise ValueError("Phone number cannot start with 0")
+
+        entry = _select_one_or_none("user", **{field: key})  
+
+        if entry:
             role = _role_for_email(entry.email)
             if entry.role != role:
                 entry.role = role
@@ -127,69 +152,30 @@ class UserStore:
                 if entry.phone_verified is not True:
                     entry.phone_verified = True
                     entry.updated_at = datetime.now(timezone.utc)
-            session.flush()
-            return entry
+            return entry, True
 
-    def ensure_user_for_identifier(self, identifier: str) -> tuple[UserEntry, bool]:
-        if "@" in identifier:
-            key = _normalize_email(identifier)
-            field = "email"
-        else:
-            key = _normalize_phone(identifier)
-            field = "phone_number"
-            if len(key) != 10:
-                raise ValueError("Phone number must be 10 digits")
-            if key.startswith("0"):
-                raise ValueError("Phone number cannot start with 0")
-
-        with session_scope() as session:
-            if field == "email":
-                result = session.execute(select(UserEntry).where(UserEntry.email == key))
-            else:
-                result = session.execute(
-                    select(UserEntry).where(UserEntry.phone_number == key)
-                )
-            entry = result.scalar_one_or_none()
-            if entry:
-                role = _role_for_email(entry.email)
-                if entry.role != role:
-                    entry.role = role
-                    entry.updated_at = datetime.now(timezone.utc)
-                if _apply_seed_profile(entry):
-                    entry.updated_at = datetime.now(timezone.utc)
-                if _apply_phone_provided(entry):
-                    entry.updated_at = datetime.now(timezone.utc)
-                if _ensure_phone_verified(entry):
-                    entry.updated_at = datetime.now(timezone.utc)
-                if field == "phone_number" and entry.phone_number:
-                    if entry.phone_verified is not True:
-                        entry.phone_verified = True
-                        entry.updated_at = datetime.now(timezone.utc)
-                session.flush()
-                return entry, True
-
-            now = datetime.now(timezone.utc)
-            role = _role_for_email(key if field == "email" else None)
-            first_name, last_name = _seed_profile_for_email(
-                key if field == "email" else None
-            )
-            entry = UserEntry(
-                email=key if field == "email" else None,
-                first_name=first_name,
-                last_name=last_name,
-                country_code=None,
-                phone_number=key if field == "phone_number" else None,
-                permissions=None,
-                role=role,
-                phone_provided=bool(field == "phone_number"),
-                phone_verified=bool(field == "phone_number"),
-                created_at=now,
-                updated_at=now,
-                onboarded_at=None,
-            )
-            session.add(entry)
-            session.flush()
-            return entry, False
+        now = datetime.now(timezone.utc)
+        role = _role_for_email(key if field == "email" else None)
+        first_name, last_name = _seed_profile_for_email(
+            key if field == "email" else None
+        )
+        entry = {            
+            "email":key if field == "email" else None,
+            "first_name":first_name,
+            "last_name":last_name,
+            "country_code":None,
+            "phone_number":key if field == "phone_number" else None,
+            "permissions":None,
+            "role":role,
+            "phone_provided":bool(field == "phone_number"),
+            "phone_verified":bool(field == "phone_number"),
+            "created_at":now,
+            "updated_at":now,
+            "onboarded_at":None,
+        }
+        _add_record("user", **entry)
+        entry=UserEntry(**entry)
+        return entry, False
 
     def create_user(
         self, payload: UserCreate, phone_verified: bool = False
@@ -200,41 +186,34 @@ class UserStore:
         country_code = _normalize_country_code(payload.country_code)
         permissions = payload.permissions.model_dump()
 
-        with session_scope() as session:
-            if email:
-                existing = session.execute(
-                    select(UserEntry).where(UserEntry.email == email)
-                ).scalar_one_or_none()
-                if existing:
-                    raise ValueError("Email already in use")
-            if phone_number:
-                existing_phone = session.execute(
-                    select(UserEntry).where(UserEntry.phone_number == phone_number)
-                ).scalar_one_or_none()
-                if existing_phone:
-                    raise ValueError("Phone number already in use")
+        if email and _select_one_or_none("user", email=email):
+            raise ValueError("Email already in use")
 
-            entry = UserEntry(
-                email=email,
-                first_name=payload.first_name,
-                last_name=payload.last_name,
-                country_code=country_code,
-                phone_number=phone_number,
-                address=payload.address,
-                job_title=payload.job_title,
-                permissions=permissions,
-                role=_role_for_email(email),
-                phone_provided=bool(phone_number),
-                phone_verified=bool(phone_number) and phone_verified,
-                created_at=now,
-                updated_at=now,
-                onboarded_at=now if permissions else None,
-            )
-            if _is_onboarded(entry):
-                entry.onboarded_at = now
-            session.add(entry)
-            session.flush()
-            return self._to_response(entry)
+        if phone_number and _select_one_or_none("user", phone_number=phone_number):
+            raise ValueError("Phone number already in use")
+
+
+        entry = {
+            "email":email,
+            "first_name":payload.first_name,
+            "last_name":payload.last_name,
+            "country_code":country_code,
+            "phone_number":phone_number,
+            "address":payload.address,
+            "job_title":payload.job_title,
+            "permissions":permissions,
+            "role":_role_for_email(email),
+            "phone_provided":bool(phone_number),
+            "phone_verified":bool(phone_number) and phone_verified,
+            "created_at":now,
+            "updated_at":now,
+            "onboarded_at":now if permissions else None,
+        }
+        if _is_onboarded(entry):
+            entry["onboarded_at"] = now
+        _add_record("user", **entry)
+        entry=UserEntry(**entry)
+        return self._to_response(entry)
 
     def update_user(self, user_id: int, payload: UserCreate) -> UserResponse:
         now = datetime.now(timezone.utc)
@@ -243,32 +222,30 @@ class UserStore:
         country_code = _normalize_country_code(payload.country_code)
         permissions = payload.permissions.model_dump()
 
-        with session_scope() as session:
-            entry = session.get(UserEntry, user_id)
-            if entry is None:
-                raise ValueError("User not found")
+        entry = _select_one_or_none("user", id=user_id)
+        if entry is None:
+            raise ValueError("User not found")
 
-            if email and email != entry.email:
-                existing = session.execute(
-                    select(UserEntry).where(UserEntry.email == email)
-                ).scalar_one_or_none()
-                if existing and existing.id != user_id:
-                    raise ValueError("Email already in use")
-                entry.email = email
-                entry.role = _role_for_email(entry.email)
+        if email and email != entry.email:
+            existing = _select_one_or_none("user", email=email)
+            if existing and existing.id != user_id:
+                raise ValueError("Email already in use")
+
+            entry.email = email
+            entry.role = _role_for_email(entry.email)
+
 
             phone_changed = phone_number != entry.phone_number
             country_changed = country_code != entry.country_code
             if phone_changed or country_changed:
                 if phone_number:
-                    existing_phone = session.execute(
-                        select(UserEntry).where(UserEntry.phone_number == phone_number)
-                    ).scalar_one_or_none()
+                    existing_phone = _select_one_or_none("user", phone_number=phone_number)
                     if existing_phone and existing_phone.id != user_id:
                         raise ValueError("Phone number already in use")
-                entry.phone_number = phone_number
-                entry.country_code = country_code if phone_number else None
-                entry.phone_verified = False
+
+            entry.phone_number = phone_number
+            entry.country_code = country_code if phone_number else None
+            entry.phone_verified = False
             if not phone_number:
                 entry.country_code = None
                 entry.phone_verified = False
@@ -286,8 +263,6 @@ class UserStore:
             _ensure_phone_verified(entry)
             if _is_onboarded(entry) and entry.onboarded_at is None:
                 entry.onboarded_at = now
-
-            session.flush()
             return self._to_response(entry)
 
     def is_phone_verified(
@@ -297,15 +272,15 @@ class UserStore:
             return False
         normalized = _normalize_phone(phone_number)
         normalized_country = _normalize_country_code(country_code)
-        with session_scope() as session:
-            entry = session.get(UserEntry, user_id)
-            if entry is None:
-                raise ValueError("User not found")
-            return (
-                entry.phone_number == normalized
-                and entry.country_code == normalized_country
-                and entry.phone_verified is True
-            )
+        entry = _select_one_or_none("user", id=user_id)
+
+        if entry is None:
+            raise ValueError("User not found")
+        return (
+            entry.phone_number == normalized
+            and entry.country_code == normalized_country
+            and entry.phone_verified is True
+        )
 
     def is_phone_in_use(
         self,
@@ -315,17 +290,15 @@ class UserStore:
     ) -> bool:
         normalized = _normalize_phone(phone_number)
         normalized_country = _normalize_country_code(country_code)
-        with session_scope() as session:
-            entry = session.execute(
-                select(UserEntry).where(UserEntry.phone_number == normalized)
-            ).scalar_one_or_none()
-            if entry is None:
-                return False
-            if exclude_user_id is not None and entry.id == exclude_user_id:
-                return False
-            if normalized_country and entry.country_code:
-                return entry.country_code == normalized_country
-            return True
+        entry = _select_one_or_none("user", phone_number=normalized)
+        if entry is None:
+            return False
+        if exclude_user_id is not None and entry.id == exclude_user_id:
+            return False
+        if normalized_country and entry.country_code:
+            return entry.country_code == normalized_country
+        return True
+
 
     def verify_phone(
         self, user_id: int, phone_number: str, country_code: Optional[str]
@@ -333,36 +306,35 @@ class UserStore:
         normalized = _normalize_phone(phone_number)
         normalized_country = _normalize_country_code(country_code)
         now = datetime.now(timezone.utc)
-        with session_scope() as session:
-            entry = session.get(UserEntry, user_id)
-            if entry is None:
-                raise ValueError("User not found")
-            if normalized != entry.phone_number:
-                existing_phone = session.execute(
-                    select(UserEntry).where(UserEntry.phone_number == normalized)
-                ).scalar_one_or_none()
-                if existing_phone and existing_phone.id != user_id:
-                    raise ValueError("Phone number already in use")
-                entry.phone_number = normalized
-            entry.country_code = normalized_country
-            entry.phone_provided = bool(normalized)
-            entry.phone_verified = True
-            entry.updated_at = now
-            session.flush()
-            return self._to_response(entry)
+        entry = _select_one_or_none("user", id=user_id)
+        if entry is None:
+            raise ValueError("User not found")
+
+        if normalized != entry.phone_number:
+            existing_phone = _select_one_or_none("user", phone_number=normalized)
+            if existing_phone and existing_phone.id != user_id:
+                raise ValueError("Phone number already in use")
+            entry.phone_number = normalized
+
+        entry.country_code = normalized_country
+        entry.phone_provided = bool(normalized)
+        entry.phone_verified = True
+        entry.updated_at = now
+
+        return self._to_response(entry)
+
 
     def list_users(self) -> list[UserResponse]:
-        with session_scope() as session:
-            result = session.execute(select(UserEntry).order_by(UserEntry.id))
-            entries = result.scalars().all()
-            return [self._to_response(entry) for entry in entries]
+        entries = _select_records("user", order_by="id")
+        return [self._to_response(entry) for entry in entries]
+
 
     def get_user(self, user_id: int) -> Optional[UserResponse]:
-        with session_scope() as session:
-            entry = session.get(UserEntry, user_id)
-            if entry is None:
-                return None
-            return self._to_response(entry)
+        entry = _select_one_or_none("user", id=user_id)
+
+        if entry is None:
+            return None
+        return self._to_response(entry)
 
     def exists_by_identifier(self, identifier: str) -> bool:
         if not identifier:
@@ -373,29 +345,31 @@ class UserStore:
         else:
             key = _normalize_phone(identifier)
             field = UserEntry.phone_number
-        with session_scope() as session:
-            result = session.execute(select(UserEntry).where(field == key))
-            return result.scalar_one_or_none() is not None
+        result = _select_one_or_none(
+            "user",
+            **{field: key}
+        )
+
+        return result.scalar_one_or_none() is not None
 
     def ensure_roles(self) -> None:
         now = datetime.now(timezone.utc)
-        with session_scope() as session:
-            entries = session.execute(select(UserEntry)).scalars().all()
-            for entry in entries:
-                role = _role_for_email(entry.email)
-                updated = False
-                if entry.role != role:
-                    entry.role = role
-                    updated = True
-                if _apply_seed_profile(entry):
-                    updated = True
-                if _apply_phone_provided(entry):
-                    updated = True
-                if _ensure_phone_verified(entry):
-                    updated = True
-                if updated:
-                    entry.updated_at = now
-            session.flush()
+        entries  = _select_records("user")
+
+        for entry in entries:
+            role = _role_for_email(entry.email)
+            updated = False
+            if entry.role != role:
+                entry.role = role
+                updated = True
+            if _apply_seed_profile(entry):
+                updated = True
+            if _apply_phone_provided(entry):
+                updated = True
+            if _ensure_phone_verified(entry):
+                updated = True
+            if updated:
+                entry.updated_at = now
 
     def _to_response(self, entry: UserEntry) -> UserResponse:
         permissions = entry.permissions or {}

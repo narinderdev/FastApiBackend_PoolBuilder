@@ -98,66 +98,66 @@ def get_current_user_id(authorization: Optional[str] = Header(default=None)) -> 
     return access_data.user_id
 
 
-@router.post("/otp/request", response_model=OtpResponse, response_model_exclude_none=True)
-def request_phone_otp(
-    payload: PhoneOtpRequest, user_id: int = Depends(get_current_user_id)
-) -> OtpResponse:
-    LOGGER.info(
-        "Phone OTP request payload received country_code=%s phone_number=%s user_id=%s",
-        payload.country_code,
-        payload.phone_number,
-        user_id,
-    )
-    if user_store.is_phone_in_use(
-        payload.phone_number, payload.country_code, exclude_user_id=user_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already exists,use a different phone number",
-        )
-    identifier = f"{payload.country_code}{payload.phone_number}"
-    record = otp_store.request_otp(identifier, "onboarding")
-    try:
-        send_otp_sms(identifier, record.code, "onboarding")
-    except SmsSendError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
-    return OtpResponse(
-        message="OTP sent",
-        expires_in_seconds=settings.otp_ttl_seconds,
-        otp=record.code if settings.otp_debug else None,
-    )
+# @router.post("/otp/request", response_model=OtpResponse, response_model_exclude_none=True)
+# def request_phone_otp(
+#     payload: PhoneOtpRequest, user_id: int = Depends(get_current_user_id)
+# ) -> OtpResponse:
+#     LOGGER.info(
+#         "Phone OTP request payload received country_code=%s phone_number=%s user_id=%s",
+#         payload.country_code,
+#         payload.phone_number,
+#         user_id,
+#     )
+#     if user_store.is_phone_in_use(
+#         payload.phone_number, payload.country_code, exclude_user_id=user_id
+#     ):
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="User already exists,use a different phone number",
+#         )
+#     identifier = f"{payload.country_code}{payload.phone_number}"
+#     record = otp_store.request_otp(identifier, "onboarding")
+#     try:
+#         send_otp_sms(identifier, record.code, "onboarding")
+#     except SmsSendError as exc:
+#         raise HTTPException(
+#             status_code=status.HTTP_502_BAD_GATEWAY,
+#             detail=str(exc),
+#         ) from exc
+#     return OtpResponse(
+#         message="OTP sent",
+#         expires_in_seconds=settings.otp_ttl_seconds,
+#         otp=record.code if settings.otp_debug else None,
+#     )
 
 
-@router.post("/otp/verify", response_model=PhoneOtpVerifyResponse)
-def verify_phone_otp(
-    payload: PhoneOtpVerifyRequest, user_id: int = Depends(get_current_user_id)
-) -> PhoneOtpVerifyResponse:
-    identifier = f"{payload.country_code}{payload.phone_number}"
-    verified = otp_store.verify_otp(identifier, "onboarding", payload.code)
-    if not verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP",
-        )
-    try:
-        user = user_store.verify_phone(
-            user_id, payload.phone_number, payload.country_code
-        )
-    except ValueError as exc:
-        detail = str(exc)
-        status_code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in detail.lower()
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-    return PhoneOtpVerifyResponse(
-        message="OTP verified",
-        phone_verified=bool(user.phone_verified),
-    )
+# @router.post("/otp/verify", response_model=PhoneOtpVerifyResponse)
+# def verify_phone_otp(
+#     payload: PhoneOtpVerifyRequest, user_id: int = Depends(get_current_user_id)
+# ) -> PhoneOtpVerifyResponse:
+#     identifier = f"{payload.country_code}{payload.phone_number}"
+#     verified = otp_store.verify_otp(identifier, "onboarding", payload.code)
+#     if not verified:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Invalid or expired OTP",
+#         )
+#     try:
+#         user = user_store.verify_phone(
+#             user_id, payload.phone_number, payload.country_code
+#         )
+#     except ValueError as exc:
+#         detail = str(exc)
+#         status_code = (
+#             status.HTTP_404_NOT_FOUND
+#             if "not found" in detail.lower()
+#             else status.HTTP_400_BAD_REQUEST
+#         )
+#         raise HTTPException(status_code=status_code, detail=detail) from exc
+#     return PhoneOtpVerifyResponse(
+#         message="OTP verified",
+#         phone_verified=bool(user.phone_verified),
+#     )
 
 
 @router.get("", response_model=list[UserResponse])

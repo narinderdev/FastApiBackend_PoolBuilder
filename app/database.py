@@ -33,9 +33,9 @@ Base = declarative_base()
 
 def init_db() -> None:
     # Import models ONLY so SQLAlchemy knows them
-    from app.models import otp as _otp  # noqa: F401
-    from app.models import session as _session  # noqa: F401
-    from app.models import user as _user  # noqa: F401
+    from app.models.schema import otp as _otp  # noqa: F401
+    from app.models.schema  import session as _session  # noqa: F401
+    from app.models.schema  import user as _user  # noqa: F401
 
     # 🚫 NO create_all
     # 🚫 NO inspect
